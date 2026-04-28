@@ -1,3 +1,4 @@
+const fetch = require('node-fetch');
 const express = require('express');
 const crypto = require('crypto');
 
@@ -78,8 +79,8 @@ app.post('/slack/events', async (req, res) => {
   const question = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
   if (!question) return;
   try {
-    const answer = await askClaude(question);
-    await sendSlackMessage(event.channel, answer, event.ts);
+    const answer = "テスト返信です";
+    await sendSlackMessage(event.channel, answer, eent.ts);
   } catch (err) {
     console.error('Error:', err);
     await sendSlackMessage(event.channel, 'エラーが発生しました。', event.ts);
