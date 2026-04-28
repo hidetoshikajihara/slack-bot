@@ -41,7 +41,7 @@ async function sendSlackMessage(channel, text, thread_ts) {
 
 async function askClaude(question) {
   const body = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5',
     max_tokens: 1024,
     system: 'あなたはGoogleスプレッドシートのデータを分析・解説するアシスタントです。日本語で答えてください。',
     messages: [{ role: 'user', content: question }]
