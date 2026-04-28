@@ -7,20 +7,16 @@ const PORT = process.env.PORT || 3000;
 
 app.use((req, res, next) => {
   let data = '';
-
   req.on('data', chunk => {
     data += chunk;
   });
-
   req.on('end', () => {
     req.rawBody = data;
-
     try {
       req.body = JSON.parse(data);
     } catch (e) {
       req.body = {};
     }
-
     next();
   });
 });
@@ -37,7 +33,6 @@ function verifySlackSignature(req) {
   const baseString = `v0:${timestamp}:${req.rawBody}`;
   const hmac = crypto.createHmac('sha256', signingSecret);
   hmac.update(baseString);
-
   const mySignature = `v0=${hmac.digest('hex')}`;
 
   return crypto.timingSafeEqual(
@@ -67,7 +62,6 @@ async function sendSlackMessage(channel, text, thread_ts) {
 
   const data = await response.json();
   console.log('Slack response:', data);
-
   return data;
 }
 
@@ -82,8 +76,7 @@ async function askClaude(question) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system:
-        'あなたはGoogleスプレッドシートのデータを分析・解説するアシスタントです。スプレッドシートについての質問に日本語で答えてください。',
+      system: 'あなたはGoogleスプレッドシートのデータを分析・解説するアシスタントです。スプレッドシートについての質問に日本語で答えてください。',
       messages: [
         {
           role: 'user',
@@ -95,7 +88,6 @@ async function askClaude(question) {
 
   const data = await response.json();
   console.log('Claude response:', data);
-
   return data.content?.[0]?.text || 'エラーが発生しました。';
 }
 
@@ -118,14 +110,11 @@ app.post('/slack/events', async (req, res) => {
   res.status(200).send('OK');
 
   const event = req.body.event;
-
   if (!event) return;
   if (event.type !== 'app_mention') return;
 
   const eventId = req.body.event_id;
-
   if (processedEvents.has(eventId)) return;
-
   processedEvents.add(eventId);
 
   setTimeout(() => {
@@ -144,13 +133,10 @@ app.post('/slack/events', async (req, res) => {
   }
 
   try {
-    // まずはClaudeを使わず、Slack返信テスト
-    const answer = 'テスト返信です';
-
+    const answer = await askClaude(question);
     await sendSlackMessage(event.channel, answer, event.ts);
   } catch (err) {
     console.error('Error:', err);
-
     await sendSlackMessage(
       event.channel,
       'エラーが発生しました。',
