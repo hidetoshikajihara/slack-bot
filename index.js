@@ -6,6 +6,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SPREADSHEET_ID = '1GYvE8y6At2UsGg8_vXO8pS2NvFfH82eT8DF4WWK7HEY';
 
+const SHEET_NAMES = [
+  '26SS靴下', '25AW靴下', '24AW靴下', '24SS靴下', '23AW靴下', '23SS靴下',
+  '22AW靴下', '22SS靴下', '21AW靴下', '21SS靴下', '20AW靴下', '20SS靴下',
+  '19AW靴下', '19SS靴下', '18AW靴下', '26SSウェア', '25AWウェア', '25SSウェア',
+  '24AWウェア', '24SSウェア', '23AWウェア', '23SSウェア', '22AWウェア',
+  'ドッグウェア', 'ドッグポンチョ', 'ドッグリード', 'タオル'
+];
+
 app.use((req, res, next) => {
   let data = '';
   req.on('data', chunk => { data += chunk; });
@@ -40,13 +48,11 @@ async function getGoogleAccessToken() {
     exp: now + 3600,
     iat: now
   })).toString('base64url');
-  
   const { createSign } = require('crypto');
   const sign = createSign('RSA-SHA256');
   sign.update(`${header}.${payload}`);
   const signature = sign.sign(credentials.private_key, 'base64url');
   const jwt = `${header}.${payload}.${signature}`;
-  
   const body = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`;
   const result = await httpsRequest({
     hostname: 'oauth2.googleapis.com',
@@ -57,11 +63,37 @@ async function getGoogleAccessToken() {
   return result.access_token;
 }
 
-async function getSheetData() {
+function detectSheetFromQuestion(question) {
+  for (const name of SHEET_NAMES) {
+    if (question.includes(name)) return name;
+  }
+  if (question.includes('靴下')) {
+    const seasons = ['26SS','25AW','24AW','24SS','23AW','23SS','22AW','22SS','21AW','21SS','20AW','20SS','19AW','19SS','18AW'];
+    for (const s of seasons) {
+      if (question.includes(s)) return `${s}靴下`;
+    }
+    return '26SS靴下';
+  }
+  if (question.includes('ウェア')) {
+    const seasons = ['26SS','25AW','25SS','24AW','24SS','23AW','23SS','22AW'];
+    for (const s of seasons) {
+      if (question.includes(s)) return `${s}ウェア`;
+    }
+    return '26SSウェア';
+  }
+  if (question.includes('ドッグ') || question.includes('犬')) return 'ドッグウェア';
+  if (question.includes('タオル')) return 'タオル';
+  if (question.includes('リード')) return 'ドッグリード';
+  if (question.includes('ポンチョ')) return 'ドッグポンチョ';
+  return null;
+}
+
+async function getSheetData(sheetName) {
   const token = await getGoogleAccessToken();
+  const encodedSheet = encodeURIComponent(sheetName);
   const result = await httpsRequest({
     hostname: 'sheets.googleapis.com',
-    path: `/v4/spreadsheets/${SPREADSHEET_ID}/values/A1:Z100`,
+    path: `/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodedSheet}!A1:Z200`,
     method: 'GET',
     headers: { 'Authorization': `Bearer ${token}` }
   });
@@ -81,11 +113,11 @@ async function sendSlackMessage(channel, text, thread_ts) {
   return data;
 }
 
-async function askClaude(question, sheetData) {
+async function askClaude(question, sheetData, sheetName) {
   const body = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
-    system: `あなたはGoogleスプレッドシートのデータを分析・解説するアシスタントです。以下のスプレッドシートデータを参照して日本語で答えてください。\n\nスプレッドシートデータ:\n${sheetData}`,
+    system: `あなたはCOQ KANAKO KAJIHARAの在庫管理アシスタントです。「${sheetName}」シートのデータを参照して日本語で答えてください。\n\nシートデータ:\n${sheetData}`,
     messages: [{ role: 'user', content: question }]
   });
   const data = await httpsRequest({
@@ -112,9 +144,15 @@ app.post('/slack/events', async (req, res) => {
   setTimeout(() => { processedEvents.delete(eventId); }, 60000);
   const question = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
   try {
-    await sendSlackMessage(event.channel, 'スプレッドシートを確認中...', event.ts);
-    const sheetData = await getSheetData();
-    const answer = question ? await askClaude(question, sheetData) : '質問内容を入力してください。';
+    const sheetName = detectSheetFromQuestion(question);
+    if (!sheetName) {
+      const sheetList = SHEET_NAMES.join('、');
+      await sendSlackMessage(event.channel, `どのシートを参照しますか？\n利用可能なシート：${sheetList}`, event.ts);
+      return;
+    }
+    await sendSlackMessage(event.channel, `「${sheetName}」を確認中...`, event.ts);
+    const sheetData = await getSheetData(sheetName);
+    const answer = await askClaude(question, sheetData, sheetName);
     await sendSlackMessage(event.channel, answer, event.ts);
   } catch (err) {
     console.error('Error:', err);
